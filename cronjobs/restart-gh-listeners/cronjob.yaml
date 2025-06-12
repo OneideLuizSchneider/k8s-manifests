@@ -1,0 +1,79 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: del-gh-listeners
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: del-gh-listeners
+rules:
+  # Allow managing pods (list, get, delete)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: del-gh-listeners
+subjects:
+  - kind: ServiceAccount
+    name: del-gh-listeners
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: del-gh-listeners
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: del-gh-listeners
+  namespace: default
+spec:
+  schedule: "0 12 * * *"        # Every day at 12:00 UTC  
+  concurrencyPolicy: Forbid    # Prevents concurrent runs of the CronJob to avoid resource conflicts
+  suspend: false               # Ensures the CronJob is active and not paused
+  startingDeadlineSeconds: 60  # Maximum time in seconds to start the job if it misses its scheduled time
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:        
+        spec:        
+          serviceAccountName: del-gh-listeners
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            fsGroup: 2000
+          containers:
+          - name: del-gh-listeners
+            image: oneidels/kubectl
+            imagePullPolicy: Always
+            command:
+              - /bin/bash
+              - -c
+              - |
+                echo "Deleting arc-systems listeners..."
+                kubectl get pod -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener
+                kubectl delete pod -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener
+                kubectl get pod -n arc-systems -l app.kubernetes.io/component=runner-scale-set-listener
+            securityContext:
+              allowPrivilegeEscalation: false
+              runAsNonRoot: true
+              runAsUser: 1000  
+              capabilities:
+                drop:
+                  - ALL
+              readOnlyRootFilesystem: true
+            resources:
+              limits:
+                memory: "128Mi"
+                cpu: "100m"
+              requests:
+                memory: "64Mi"
+                cpu: "50m"
+          
